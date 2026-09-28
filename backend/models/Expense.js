@@ -41,12 +41,19 @@ const expenseSchema = new mongoose.Schema(
       type: String,
       required: [true, 'Expense title is required'],
       trim: true,
-      maxlength: [150, 'Title cannot exceed 150 characters']
+      maxlength: [100, 'Title cannot exceed 100 characters']
     },
     amount: {
       type: Number,
       required: [true, 'Expense amount is required'],
-      min: [0, 'Amount must be a positive number']
+      min: [0.01, 'Amount must be greater than 0'],
+      validate: {
+        validator: function (v) {
+          // Maximum 2 decimal places
+          return /^\d+(\.\d{1,2})?$/.test(v.toString());
+        },
+        message: 'Amount cannot have more than 2 decimal places'
+      }
     },
     category: {
       type: String,
@@ -64,7 +71,7 @@ const expenseSchema = new mongoose.Schema(
       type: String,
       default: '',
       trim: true,
-      maxlength: [1000, 'Description cannot exceed 1000 characters']
+      maxlength: [500, 'Description cannot exceed 500 characters']
     },
     status: {
       type: String,
@@ -104,7 +111,7 @@ const expenseSchema = new mongoose.Schema(
   }
 );
 
-// Indexes for high-performance querying
+// Indexes for query performance
 expenseSchema.index({ employeeId: 1 });
 expenseSchema.index({ status: 1 });
 expenseSchema.index({ date: 1 });
