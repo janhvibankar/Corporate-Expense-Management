@@ -1,9 +1,10 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
-const generateToken = (id, role) => {
-  return jwt.sign({ id, role }, process.env.JWT_SECRET || 'secret', {
-    expiresIn: '7d'
+// Helper to generate JWT with minimal payload { userId } and 1 day expiry
+const generateToken = (userId) => {
+  return jwt.sign({ userId }, process.env.JWT_SECRET, {
+    expiresIn: '1d'
   });
 };
 
@@ -17,47 +18,52 @@ const login = async (req, res, next) => {
     if (!email || !password) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide email and password'
+        message: 'Please provide both email and password.'
       });
     }
 
-    // Find user by email and explicitly select password
-    const user = await User.findOne({ email: email.toLowerCase() })
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // Find user by email and explicitly include password for bcrypt verification
+    const user = await User.findOne({ email: normalizedEmail })
       .select('+password')
       .populate('managerId', 'name email role');
 
+    // Generic response message for unknown email, inactive accounts, or wrong password
+    const genericAuthError = {
+      success: false,
+      message: 'Invalid email or password'
+    };
+
     if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials'
-      });
+      return res.status(401).json(genericAuthError);
     }
 
     if (!user.isActive) {
-      return res.status(403).json({
-        success: false,
-        message: 'Account is deactivated. Please contact an administrator.'
-      });
+      return res.status(401).json(genericAuthError);
     }
 
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials'
-      });
+      return res.status(401).json(genericAuthError);
     }
 
-    const token = generateToken(user._id, user.role);
-
-    const userObj = user.toObject();
-    delete userObj.password;
+    // Generate token with userId only (role is never trusted from token)
+    const token = generateToken(user._id);
 
     res.status(200).json({
       success: true,
       message: 'Login successful',
       token,
-      user: userObj
+      user: {
+        id: user._id,
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        managerId: user.managerId,
+        isActive: user.isActive
+      }
     });
   } catch (error) {
     next(error);
@@ -69,10 +75,28 @@ const login = async (req, res, next) => {
 // @access  Private
 const getMe = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user._id).populate('managerId', 'name email role');
+    const user = await User.findById(req.user.id || req.user._id)
+      .populate('managerId', 'name email role')
+      .select('-password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
     res.status(200).json({
       success: true,
-      user
+      user: {
+        id: user._id,
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        managerId: user.managerId,
+        isActive: user.isActive
+      }
     });
   } catch (error) {
     next(error);

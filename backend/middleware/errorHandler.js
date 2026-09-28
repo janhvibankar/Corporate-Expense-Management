@@ -2,7 +2,7 @@ const errorHandler = (err, req, res, next) => {
   let error = { ...err };
   error.message = err.message;
 
-  // Log error for developers in development
+  // Log error in development if needed
   if (process.env.NODE_ENV === 'development') {
     console.error('Error Stack:', err);
   }
@@ -10,20 +10,20 @@ const errorHandler = (err, req, res, next) => {
   let statusCode = err.statusCode || 500;
   let message = err.message || 'Internal Server Error';
 
-  // Mongoose bad ObjectId (CastError)
-  if (err.name === 'CastError') {
-    message = `Resource not found with ID of ${err.value}`;
-    statusCode = 404;
-  }
-
-  // Mongoose duplicate key error (code 11000)
-  if (err.code === 11000) {
-    const field = Object.keys(err.keyValue || {})[0] || 'field';
-    message = `Duplicate value entered for '${field}'. Please use another value.`;
+  // Mongoose bad ObjectId / CastError -> 400 Bad Request
+  if (err.name === 'CastError' || (err.kind === 'ObjectId')) {
+    message = `Invalid ID format: '${err.value}'`;
     statusCode = 400;
   }
 
-  // Mongoose validation error
+  // Mongoose duplicate key error (code 11000) -> 409 Conflict
+  if (err.code === 11000) {
+    const field = Object.keys(err.keyValue || {})[0] || 'field';
+    message = `Duplicate value entered for '${field}'. A record with this value already exists.`;
+    statusCode = 409;
+  }
+
+  // Mongoose validation error -> 400 Bad Request
   if (err.name === 'ValidationError') {
     message = Object.values(err.errors)
       .map((val) => val.message)
@@ -31,7 +31,7 @@ const errorHandler = (err, req, res, next) => {
     statusCode = 400;
   }
 
-  // JWT errors
+  // JWT errors -> 401 Unauthorized
   if (err.name === 'JsonWebTokenError') {
     message = 'Invalid token. Please authenticate again.';
     statusCode = 401;

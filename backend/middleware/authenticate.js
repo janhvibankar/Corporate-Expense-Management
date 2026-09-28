@@ -15,12 +15,36 @@ const authenticate = async (req, res, next) => {
     if (!token) {
       return res.status(401).json({
         success: false,
-        message: 'Access denied. No token provided.'
+        message: 'Authentication required. No token provided.'
       });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id).select('-password');
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (err) {
+      if (err.name === 'TokenExpiredError') {
+        return res.status(401).json({
+          success: false,
+          message: 'Token has expired. Please log in again.'
+        });
+      }
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid or corrupted token.'
+      });
+    }
+
+    const userId = decoded.userId || decoded.id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid token payload.'
+      });
+    }
+
+    // Load fresh user data directly from MongoDB to enforce live role & active status
+    const user = await User.findById(userId).select('-password');
 
     if (!user) {
       return res.status(401).json({
@@ -30,13 +54,23 @@ const authenticate = async (req, res, next) => {
     }
 
     if (!user.isActive) {
-      return res.status(403).json({
+      return res.status(401).json({
         success: false,
-        message: 'User account has been deactivated.'
+        message: 'User account is deactivated.'
       });
     }
 
-    req.user = user;
+    // Attach minimal, non-trusting user identity to request object
+    req.user = {
+      id: user._id.toString(),
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      managerId: user.managerId,
+      isActive: user.isActive
+    };
+
     next();
   } catch (error) {
     next(error);
